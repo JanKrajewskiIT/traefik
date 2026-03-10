@@ -14,13 +14,34 @@ Runs as a standalone Docker Compose stack on the VPS at `/opt/traefik`. Auto-dis
 
 ## Deployment
 
+### CI/CD (GitHub Actions)
+
+Push to `main` triggers `.github/workflows/deploy.yml` which SSHs into the VPS, clones/pulls the repo via `GHCR_TOKEN`, and runs `docker compose up -d`.
+
+Required secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN`, `ACME_EMAIL`.
+
+### Manual deployment
+
+SSH into the VPS and run:
+
 ```bash
-# On VPS — first time
+# First time only
 docker network create proxy
+
+# Clone / update repo
+cd /opt
+git clone https://github.com/JanKrajewskiIT/traefik.git traefik 2>/dev/null || (cd traefik && git pull)
 cd /opt/traefik
+
+# Configure (first time only)
 cp .env.example .env    # Edit ACME_EMAIL
+
+# Ensure acme.json exists with correct permissions
 touch acme.json && chmod 600 acme.json
-docker compose up -d
+
+# Deploy
+docker compose pull
+docker compose up -d --remove-orphans
 ```
 
 ## How projects connect
