@@ -1,0 +1,55 @@
+name: Deploy Traefik
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy files to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "/opt/traefik"
+          timeout: 120s
+
+      - name: Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: ACME_EMAIL
+          script: |
+            set -euo pipefail
+            cd /opt/traefik
+
+            # Create .env
+            cat > .env <<EOF
+            ACME_EMAIL=${ACME_EMAIL}
+            EOF
+
+            # Ensure acme.json exists with correct permissions
+            touch acme.json
+            chmod 600 acme.json
+
+            # Ensure proxy network exists
+            docker network inspect proxy >/dev/null 2>&1 || docker network create proxy
+
+            # Pull and deploy
+            docker compose pull
+            docker compose up -d --remove-orphans
+
+            echo "Traefik deployed successfully."
+            docker compose ps

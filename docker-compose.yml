@@ -1,0 +1,48 @@
+# Shared Traefik reverse proxy — runs once on VPS, serves all projects
+# Deployed to /opt/traefik on the VPS
+#
+# Auto-discovers containers via Docker labels on the "proxy" network.
+# Handles HTTP->HTTPS redirect and Let's Encrypt certificate provisioning.
+#
+# Usage:
+#   docker network create proxy   # once
+#   docker compose up -d
+
+services:
+  traefik:
+    image: traefik:v3.4
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      # API / Dashboard
+      - --api.dashboard=false
+      # Docker provider — auto-discover containers
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=proxy
+      # Entrypoints
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # HTTP -> HTTPS redirect
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      # Let's Encrypt automatic certificates
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      # Logs
+      - --log.level=WARN
+      - --accesslog=false
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./acme.json:/acme.json
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    name: proxy
+    driver: bridge
