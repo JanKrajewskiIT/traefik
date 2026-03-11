@@ -10,35 +10,32 @@ jobs:
     environment: production
 
     steps:
+      - uses: actions/checkout@v6
+
+      - name: Copy compose file to VPS
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "/opt/traefik"
+          timeout: 60s
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.5
         env:
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GHCR_TOKEN,ACME_EMAIL
+          envs: ACME_EMAIL
           script: |
             set -euo pipefail
+            cd /opt/traefik
 
-            REPO_URL="https://${GHCR_TOKEN}@github.com/JanKrajewskiIT/traefik.git"
-            DEPLOY_DIR="/opt/traefik"
-
-            # Clone or pull the repo
-            if [ -d "${DEPLOY_DIR}/.git" ]; then
-              cd "${DEPLOY_DIR}"
-              git remote set-url origin "${REPO_URL}"
-              git fetch origin main
-              git reset --hard origin/main
-            else
-              rm -rf "${DEPLOY_DIR}"
-              git clone --depth 1 --branch main "${REPO_URL}" "${DEPLOY_DIR}"
-              cd "${DEPLOY_DIR}"
-            fi
-
-            # Create .env (not tracked in git)
+            # Create .env
             cat > .env <<EOF
             ACME_EMAIL=${ACME_EMAIL}
             EOF
@@ -54,5 +51,34 @@ jobs:
             docker compose pull
             docker compose up -d --remove-orphans
 
-            echo "Traefik deployed successfully."
+            # Cleanup
+            docker image prune -f
             docker compose ps
+
+      - name: Smoke test
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            echo "Waiting for Traefik to start..."
+            for i in $(seq 1 12); do
+              if docker ps --filter "name=traefik" --format "{{.Status}}" | grep -q "Up"; then
+                echo "Traefik container is up."
+                break
+              fi
+              if [ "$i" -eq 12 ]; then
+                echo "ERROR: Traefik did not start within 60s"
+                docker ps --filter "name=traefik" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+                exit 1
+              fi
+              sleep 5
+            done
+
+            echo "Checking Traefik is listening on port 443..."
+            curl -sf --max-time 10 -o /dev/null -w "%{http_code}" https://localhost:443 -k || true
+
+            echo "Smoke test completed."
