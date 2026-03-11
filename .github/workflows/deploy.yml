@@ -79,6 +79,7 @@ jobs:
             done
 
             echo "Checking Traefik is listening on port 443..."
-            curl -sf --max-time 10 -o /dev/null -w "%{http_code}" https://localhost:443 -k || true
+            sleep 10
+            curl -sf --retry 5 --retry-delay 10 --max-time 15 -o /dev/null -w "%{http_code}" https://localhost:443 -k || { echo "WARNING: Traefik not responding on 443"; curl -v https://localhost:443 -k 2>&1 | tail -10; }
 
             echo "Smoke test completed."
