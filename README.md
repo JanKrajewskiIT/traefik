@@ -159,28 +159,195 @@ chown -R NAZWA_UZYTKOWNIKA:NAZWA_UZYTKOWNIKA /opt/traefik
 
 Najlepiej uzyc osobnego klucza SSH tylko do deploymentu.
 
-Na swoim komputerze albo na VPS wygeneruj klucz:
+Klucz generujesz na swoim komputerze lokalnym, a nie w GitHubie.
 
-```bash
-ssh-keygen -t ed25519 -C "github-actions-traefik-deploy"
+Po wygenerowaniu powstana dwa pliki:
+
+- klucz prywatny bez rozszerzenia, ktory wklejasz do GitHub Secrets jako `VPS_SSH_KEY`,
+- klucz publiczny z rozszerzeniem `.pub`, ktory dodajesz na VPS do `authorized_keys`.
+
+### 8.1. Wygeneruj klucz na swoim komputerze
+
+Na Windows otworz PowerShell i uruchom:
+
+```powershell
+ssh-keygen -t ed25519 -C "github-actions-traefik-deploy" -f "$env:USERPROFILE\.ssh\github_actions_traefik"
 ```
 
-Dodaj klucz publiczny do VPS:
-
-```bash
-ssh-copy-id -i SCIEZKA_DO_KLUCZA.pub root@IP_TWOJEGO_CONTABO
-```
-
-Jesli `ssh-copy-id` nie jest dostepne, wklej zawartosc pliku `.pub` do:
+Gdy zapyta o passphrase:
 
 ```txt
-/root/.ssh/authorized_keys
+Enter passphrase (empty for no passphrase):
 ```
 
-Klucz prywatny wklej w GitHub jako secret:
+nacisnij `Enter`.
+
+Gdy zapyta drugi raz:
+
+```txt
+Enter same passphrase again:
+```
+
+tez nacisnij `Enter`.
+
+Powinny powstac dwa pliki:
+
+```txt
+C:\Users\jkrajewski\.ssh\github_actions_traefik
+C:\Users\jkrajewski\.ssh\github_actions_traefik.pub
+```
+
+### 8.2. Dodaj klucz publiczny na VPS
+
+Na swoim komputerze pokaz publiczny klucz:
+
+```powershell
+Get-Content "$env:USERPROFILE\.ssh\github_actions_traefik.pub"
+```
+
+Skopiuj cala jedna linie zaczynajaca sie od:
+
+```txt
+ssh-ed25519
+```
+
+Zaloguj sie na VPS:
+
+```powershell
+ssh root@IP_TWOJEGO_CONTABO
+```
+
+Na VPS przygotuj katalog SSH:
+
+```bash
+mkdir -p /root/.ssh
+nano /root/.ssh/authorized_keys
+```
+
+Wklej skopiowany publiczny klucz w nowej linii.
+
+W `nano` zapisz plik:
+
+```txt
+Ctrl + O
+Enter
+Ctrl + X
+```
+
+Ustaw poprawne uprawnienia:
+
+```bash
+chmod 700 /root/.ssh
+chmod 600 /root/.ssh/authorized_keys
+```
+
+Jesli w GitHub Secret `VPS_USER` ustawisz innego uzytkownika niz `root`, klucz publiczny musi trafic do katalogu tego uzytkownika, np.:
+
+```txt
+/home/deploy/.ssh/authorized_keys
+```
+
+### 8.3. Dodaj klucz prywatny do GitHub Secrets
+
+Na swoim komputerze pokaz klucz prywatny:
+
+```powershell
+Get-Content "$env:USERPROFILE\.ssh\github_actions_traefik"
+```
+
+Skopiuj cala zawartosc, razem z liniami:
+
+```txt
+-----BEGIN OPENSSH PRIVATE KEY-----
+...
+-----END OPENSSH PRIVATE KEY-----
+```
+
+W GitHubie wejdz w:
+
+```txt
+Repository -> Settings -> Secrets and variables -> Actions -> New repository secret
+```
+
+Dodaj secret:
+
+```txt
+Name: VPS_SSH_KEY
+Secret: cala zawartosc prywatnego klucza
+```
+
+Do `VPS_SSH_KEY` nie wklejaj pliku `.pub`.
+
+### 8.4. Dodaj pozostale GitHub Secrets
+
+W tym samym miejscu dodaj:
+
+```txt
+VPS_HOST=IP_TWOJEGO_CONTABO
+VPS_USER=root
+ACME_EMAIL=jan.krajewski.it@gmail.com
+```
+
+Poniewaz workflow uzywa:
+
+```yaml
+environment: production
+```
+
+sekrety moga byc ustawione jako repository secrets albo environment secrets dla srodowiska `production`.
+
+Jesli ustawiasz environment secrets, wejdz w:
+
+```txt
+Repository -> Settings -> Environments -> production
+```
+
+### 8.5. Przetestuj klucz lokalnie
+
+Na swoim komputerze uruchom:
+
+```powershell
+ssh -i "$env:USERPROFILE\.ssh\github_actions_traefik" root@IP_TWOJEGO_CONTABO
+```
+
+Jesli wejdziesz na VPS bez podawania hasla, GitHub Actions powinien moc uzyc tego samego klucza.
+
+Jesli test lokalny nie dziala, pipeline tez nie zadziala. Najpierw popraw `authorized_keys`, `VPS_USER` albo wklejony secret `VPS_SSH_KEY`.
+
+### 8.6. Alternatywa z ssh-copy-id
+
+Jesli masz dostepne `ssh-copy-id`, mozesz dodac klucz publiczny krocej:
+
+```bash
+ssh-copy-id -i ~/.ssh/github_actions_traefik.pub root@IP_TWOJEGO_CONTABO
+```
+
+Na Windows w PowerShellu `ssh-copy-id` zwykle nie jest dostepne, dlatego bezpieczniejsza instrukcja to reczne wklejenie publicznego klucza do `/root/.ssh/authorized_keys`.
+
+### 8.7. Co oznaczaja pliki klucza
+
+Plik prywatny:
+
+```txt
+C:\Users\jkrajewski\.ssh\github_actions_traefik
+```
+
+Ten plik idzie do GitHub Secret:
 
 ```txt
 VPS_SSH_KEY
+```
+
+Plik publiczny:
+
+```txt
+C:\Users\jkrajewski\.ssh\github_actions_traefik.pub
+```
+
+Ten plik idzie na VPS do:
+
+```txt
+/root/.ssh/authorized_keys
 ```
 
 ## 9. Uruchom deploy z pipeline
